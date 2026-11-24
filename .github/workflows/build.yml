@@ -32,6 +32,7 @@ jobs:
           set -euo pipefail
           SRC="$(dirname "$(find src -maxdepth 3 -name Android.mk | head -1)")"
           cd "$SRC"
+          sed -i 's/__builtin___clear_cache(p, p + TRAMPOLINE_SIZE);/__builtin___clear_cache((char*)p, (char*)(p + TRAMPOLINE_SIZE));/' hook.cpp
           "$ANDROID_HOME/ndk/28.2.13676358/ndk-build" \
             NDK_PROJECT_PATH=. \
             APP_BUILD_SCRIPT=Android.mk \
