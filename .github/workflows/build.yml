@@ -1,0 +1,62 @@
+name: Build from zip
+
+on:
+  push:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Unzip source
+        run: |
+          set -e
+          mkdir src
+          unzip -q ./*.zip -d src
+
+      - uses: android-actions/setup-android@v3
+        with:
+          packages: 'platform-tools'
+
+      - name: Install Android NDK
+        run: sdkmanager "ndk;28.2.13676358"
+
+      - name: Build
+        shell: bash
+        run: |
+          set -euo pipefail
+          SRC="$(dirname "$(find src -maxdepth 3 -name Android.mk | head -1)")"
+          cd "$SRC"
+          "$ANDROID_HOME/ndk/28.2.13676358/ndk-build" \
+            NDK_PROJECT_PATH=. \
+            APP_BUILD_SCRIPT=Android.mk \
+            NDK_APPLICATION_MK=Application.mk \
+            NDK_LIBS_OUT="$GITHUB_WORKSPACE/build/libs" \
+            NDK_OUT="$GITHUB_WORKSPACE/build/obj" \
+            APP_MODULES=drmid
+          test -s "$GITHUB_WORKSPACE/build/libs/arm64-v8a/libdrmid.so"
+
+      - name: Package module
+        shell: bash
+        run: |
+          set -euo pipefail
+          N="${GITHUB_RUN_NUMBER:-1}"
+          mkdir -p package/META-INF/com/google/android release
+          cp build/libs/arm64-v8a/libdrmid.so package/
+          printf 'id=android_fuckdrmid\nname=Android-FuckDrmID\nversion=1.0.%s\nversionCode=%s\nauthor=jamlops\ndescription=ARM64 Zygisk Next module; requires Zygisk Next.\n' "$N" "$N" > package/module.prop
+          printf 'name=android.hardware.drm-service.widevine libdrmid.so\n' > package/zn_modules.txt
+          printf '#!/sbin/sh\numask 022\nOUTFD=$2\nZIPFILE=$3\nmount /data 2>/dev/null\n[ -f /data/adb/magisk/util_functions.sh ] || exit 1\n. /data/adb/magisk/util_functions.sh\ninstall_module\nexit 0\n' > package/META-INF/com/google/android/update-binary
+          printf '#MAGISK\n' > package/META-INF/com/google/android/updater-script
+          chmod 755 package/META-INF/com/google/android/update-binary
+          (cd package && zip -qr "../release/Android-FuckDrmID-$N.zip" .)
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Android-FuckDrmID-${{ github.run_number }}
+          path: release/*.zip
+          if-no-files-found: error
